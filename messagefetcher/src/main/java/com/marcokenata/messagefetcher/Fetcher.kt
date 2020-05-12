@@ -26,7 +26,7 @@ import java.security.KeyManagementException
 import java.security.NoSuchAlgorithmException
 import java.util.*
 
-class Fetcher {
+class Fetcher : Service() {
 
     private var builder: NotificationCompat.Builder? = null
 
@@ -56,17 +56,17 @@ class Fetcher {
     ) {
         val subscribeThread = Thread(Runnable {
             Log.d("thread", "running...")
+            val connection = connectionFactory.newConnection()
+            val channel = connection.createChannel()
+            channel.basicQos(0)
+            val declareOk = channel.queueDeclare()
+            Log.d("thread", "getting messages...")
+            channel.queueBind(declareOk.queue, "notifications12", routingKey)
+            val defaultConsumer = QueueingConsumer(channel)
+            channel.basicConsume(declareOk.queue, true, defaultConsumer)
+            Log.d("thread", "$channel ${declareOk.queue}")
             while (true) {
                 try {
-                    Log.d("thread", "getting messages...")
-                    val connection = connectionFactory.newConnection()
-                    val channel = connection.createChannel()
-                    channel.basicQos(0)
-                    val declareOk = channel.queueDeclare()
-                    channel.queueBind(declareOk.queue, "notifications12", routingKey)
-                    val defaultConsumer = QueueingConsumer(channel)
-                    channel.basicConsume(declareOk.queue, true, defaultConsumer)
-                    Log.d("thread", "$channel ${declareOk.queue}")
                     while (true) {
                         Log.d("thread", "getting messages decoded")
                         val delivery = defaultConsumer.nextDelivery()
@@ -109,8 +109,8 @@ class Fetcher {
 
 
         val routingSplit = routingKey.split('.')
-        val priority = routingSplit[routingSplit.size-1]
-        if (priority == "*" && priority == "Targeted"){
+        val priority = routingSplit[routingSplit.size - 1]
+        if (priority == "*" && priority == "Targeted") {
             val importance = NotificationManager.IMPORTANCE_MAX
             val notificationChannel =
                 NotificationChannel(channelId, channelName, importance)
@@ -236,6 +236,39 @@ class Fetcher {
             }
         })
 
+    }
+
+    override fun onBind(intent: Intent?): IBinder? {
+        return null
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val id = intent?.extras?.get("id")
+        val appName = intent?.extras?.get("appName")
+        val routingKey = intent?.extras?.get("routingKey")
+        val activity = intent?.extras?.get("activity")
+
+        notificationHandler(
+            this,
+            id as Int,
+            appName as String,
+            Intent(this, activity as Class<*>),
+            routingKey as String
+        )
+
+        val m = (Date().time / 1000L % Int.MAX_VALUE).toInt()
+        if (builder != null) {
+            Log.d("builder", builder.toString())
+            startForeground(m, builder?.build())
+        } else {
+            builder =
+                NotificationCompat.Builder(this, 101.toString())
+
+            startForeground(m, builder?.build())
+        }
+
+
+        return START_NOT_STICKY
     }
 
 }

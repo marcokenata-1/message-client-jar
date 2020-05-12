@@ -31,6 +31,7 @@ class MainActivity : AppCompatActivity() {
 
     private var x = ""
 
+    @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
 
         super.onCreate(savedInstanceState)
@@ -51,7 +52,14 @@ class MainActivity : AppCompatActivity() {
             "test.*"
         )
 
-        ContextCompat.startForegroundService(this,intent)
+        val intent = Intent(this, Fetcher::class.java)
+        intent.putExtra("id",R.drawable.ic_launcher_foreground)
+        intent.putExtra("appName",appName)
+        intent.putExtra("routingKey","test.*")
+        intent.putExtra("activity",MainActivity::class.java)
+
+        startForegroundService(intent)
+
 
         val myCalendar = Calendar.getInstance()
 
