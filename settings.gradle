@@ -1,0 +1,3 @@
+rootProject.name='Message Client'
+include ':app'
+include ':messagefetcher'
