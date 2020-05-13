@@ -3,14 +3,14 @@ package com.marcokenata.messagefetcher
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.os.IBinder
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.JobIntentService
 import androidx.core.app.NotificationCompat
 import com.bumptech.glide.Glide
+import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ConnectionFactory
 import com.rabbitmq.client.QueueingConsumer
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -26,11 +26,18 @@ import java.security.KeyManagementException
 import java.security.NoSuchAlgorithmException
 import java.util.*
 
-class Fetcher : Service() {
+class Fetcher : JobIntentService() {
 
     private var builder: NotificationCompat.Builder? = null
+    private var subscribeThread: Thread? = null
+    private var id : Any? = null
+    private var appName : Any? = null
+    private var activity : Any? = null
+    private var routingKey : Any? = null
 
     private var connectionFactory = ConnectionFactory()
+
+    private lateinit var declareOk : AMQP.Queue.DeclareOk
     private fun connectionFactorySetup() {
         val stringUri =
             "amqp://hazpfnog:k6nyGD8xWN9o-8q1qy1Y8YvJkLkjBfjA@shark.rmq.cloudamqp.com/hazpfnog"
@@ -54,26 +61,24 @@ class Fetcher : Service() {
         appName: String,
         intent: Intent
     ) {
-        val subscribeThread = Thread(Runnable {
-            Log.d("thread", "running...")
-            val connection = connectionFactory.newConnection()
-            val channel = connection.createChannel()
-            channel.basicQos(0)
-            val declareOk = channel.queueDeclare()
-            Log.d("thread", "getting messages...")
-            channel.queueBind(declareOk.queue, "notifications12", routingKey)
-            val defaultConsumer = QueueingConsumer(channel)
-            channel.basicConsume(declareOk.queue, true, defaultConsumer)
-            Log.d("thread", "$channel ${declareOk.queue}")
+        subscribeThread = Thread(Runnable {
             while (true) {
+                Log.d("thread", "running...")
+                val connection = connectionFactory.newConnection()
+                val channel = connection.createChannel()
+                channel.basicQos(0)
+                declareOk = channel.queueDeclare()
+                Log.d("thread", "getting messages...")
+                channel.queueBind(declareOk.queue, "notifications12", routingKey)
+                val defaultConsumer = QueueingConsumer(channel)
+                channel.basicConsume(declareOk.queue, true, defaultConsumer)
+                Log.d("thread", "$channel ${declareOk.queue}")
                 try {
                     while (true) {
                         Log.d("thread", "getting messages decoded")
                         val delivery = defaultConsumer.nextDelivery()
                         val message = String(delivery.body)
-
                         Log.d("thread", message)
-
                         notificationCreator(p0, appName, message, intent, iconId, routingKey)
                     }
                 } catch (e: InterruptedException) {
@@ -88,7 +93,7 @@ class Fetcher : Service() {
                 }
             }
         })
-        subscribeThread.start()
+
     }
 
     private fun notificationCreator(
@@ -238,15 +243,20 @@ class Fetcher : Service() {
 
     }
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
+    private val TAG = "FetcherJobIntentService"
+
+    fun enqueueWork(context: Context, intent: Intent){
+        Log.d("thread","enqueue berfungsi")
+        enqueueWork(context, Fetcher::class.java, 1000, intent)
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val id = intent?.extras?.get("id")
-        val appName = intent?.extras?.get("appName")
-        val routingKey = intent?.extras?.get("routingKey")
-        val activity = intent?.extras?.get("activity")
+    override fun onHandleWork(intent: Intent) {
+        id = intent.extras?.get("id")
+        appName = intent.extras?.get("appName")
+        routingKey = intent.extras?.get("routingKey")
+        activity = intent.extras?.get("activity")
+
+        Log.d("thread","onHandleWork berfungsi")
 
         notificationHandler(
             this,
@@ -256,19 +266,23 @@ class Fetcher : Service() {
             routingKey as String
         )
 
-        val m = (Date().time / 1000L % Int.MAX_VALUE).toInt()
-        if (builder != null) {
-            Log.d("builder", builder.toString())
-            startForeground(m, builder?.build())
-        } else {
-            builder =
-                NotificationCompat.Builder(this, 101.toString())
+        subscribeThread
+            ?.start()
+    }
 
-            startForeground(m, builder?.build())
-        }
+    override fun onCreate() {
+        super.onCreate()
+        Log.d(TAG, "onCreate")
+    }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d(TAG, "onDestroy")
+    }
 
-        return START_NOT_STICKY
+    override fun onStopCurrentWork(): Boolean {
+        Log.d(TAG, "onStopCurrentWork")
+        return super.onStopCurrentWork()
     }
 
 }

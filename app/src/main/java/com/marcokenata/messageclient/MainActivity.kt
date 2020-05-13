@@ -18,6 +18,7 @@ import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.marcokenata.messagefetcher.Broadcaster
 import com.marcokenata.messagefetcher.Fetcher
 import kotlinx.android.synthetic.main.activity_main.*
 import java.text.SimpleDateFormat
@@ -44,22 +45,21 @@ class MainActivity : AppCompatActivity() {
         val appName: String = applicationInfo.loadLabel(packageManager).toString()
         val fetcher = Fetcher()
 
-        fetcher.notificationHandler(
-            applicationContext,
-            R.drawable.ic_launcher_foreground,
-            appName,
-            Intent(applicationContext,MainActivity::class.java),
-            "test.*"
-        )
+//        fetcher.notificationHandler(
+//            applicationContext,
+//            R.drawable.ic_launcher_foreground,
+//            appName,
+//            Intent(applicationContext, MainActivity::class.java),
+//            "test.*"
+//        )
 
         val intent = Intent(this, Fetcher::class.java)
-        intent.putExtra("id",R.drawable.ic_launcher_foreground)
-        intent.putExtra("appName",appName)
-        intent.putExtra("routingKey","test.*")
-        intent.putExtra("activity",MainActivity::class.java)
+        intent.putExtra("id", R.drawable.ic_launcher_foreground)
+        intent.putExtra("appName", appName)
+        intent.putExtra("routingKey", "test.*")
+        intent.putExtra("activity", MainActivity::class.java)
 
-        startForegroundService(intent)
-
+        fetcher.enqueueWork(this, intent)
 
         val myCalendar = Calendar.getInstance()
 
@@ -134,34 +134,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onStop() {
-        Log.d("logger","on stop")
-        val appName: String = applicationInfo.loadLabel(packageManager).toString()
-        val fetcher = Fetcher()
-        fetcher.notificationHandler(
-            applicationContext,
-            R.drawable.ic_launcher_foreground,
-            appName,
-            Intent(applicationContext, MainActivity::class.java),
-            "test.*"
-        )
-        super.onStop()
-    }
-
-    override fun onPause() {
-        Log.d("logger","on pause")
-        val appName: String = applicationInfo.loadLabel(packageManager).toString()
-        val fetcher = Fetcher()
-        fetcher.notificationHandler(
-            applicationContext,
-            R.drawable.ic_launcher_foreground,
-            appName,
-            Intent(applicationContext, MainActivity::class.java),
-            "test.*"
-        )
-        super.onPause()
-    }
-
     @RequiresApi(Build.VERSION_CODES.JELLY_BEAN)
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == 2 && resultCode == Activity.RESULT_OK && data != null) {
@@ -219,5 +191,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+
+        Log.d("thread","destroyed")
+        val appName: String = applicationInfo.loadLabel(packageManager).toString()
+        val intent = Intent(this, Broadcaster::class.java)
+
+        intent.putExtra("id", R.drawable.ic_launcher_foreground)
+        intent.putExtra("appName", appName)
+        intent.putExtra("routingKey", "test.*")
+        intent.putExtra("activity", MainActivity::class.java)
+
+        sendBroadcast(intent)
+
+        Log.d("thread","intent send")
+
+        super.onDestroy()
+    }
 
 }
