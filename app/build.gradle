@@ -23,6 +23,15 @@ android {
         }
     }
 
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = JavaVersion.VERSION_1_8.toString()
+    }
+
 }
 
 dependencies {
@@ -38,4 +47,6 @@ dependencies {
 
     implementation "com.squareup.okhttp3:okhttp:4.2.0"
     implementation 'com.squareup.okhttp3:logging-interceptor:4.2.0'
+
+    implementation "androidx.work:work-runtime-ktx:2.3.4"
 }

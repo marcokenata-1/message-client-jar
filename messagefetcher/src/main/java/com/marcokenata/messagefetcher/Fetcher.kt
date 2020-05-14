@@ -2,42 +2,30 @@ package com.marcokenata.messagefetcher
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import android.widget.Toast
-import androidx.core.app.JobIntentService
 import androidx.core.app.NotificationCompat
+import androidx.work.Worker
+import androidx.work.WorkerParameters
 import com.bumptech.glide.Glide
 import com.rabbitmq.client.AMQP
 import com.rabbitmq.client.ConnectionFactory
 import com.rabbitmq.client.QueueingConsumer
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.MultipartBody
-import okhttp3.RequestBody
-import okhttp3.ResponseBody
-import retrofit2.Call
-import retrofit2.Callback
-import retrofit2.Response
-import java.io.File
 import java.net.URISyntaxException
 import java.security.KeyManagementException
 import java.security.NoSuchAlgorithmException
 import java.util.*
 
-class Fetcher : JobIntentService() {
+class Fetcher(context: Context, workerParameters: WorkerParameters) :
+    Worker(context, workerParameters) {
 
     private var builder: NotificationCompat.Builder? = null
     private var subscribeThread: Thread? = null
-    private var id : Any? = null
-    private var appName : Any? = null
-    private var activity : Any? = null
-    private var routingKey : Any? = null
 
     private var connectionFactory = ConnectionFactory()
 
-    private lateinit var declareOk : AMQP.Queue.DeclareOk
+    private lateinit var declareOk: AMQP.Queue.DeclareOk
     private fun connectionFactorySetup() {
         val stringUri =
             "amqp://hazpfnog:k6nyGD8xWN9o-8q1qy1Y8YvJkLkjBfjA@shark.rmq.cloudamqp.com/hazpfnog"
@@ -58,9 +46,10 @@ class Fetcher : JobIntentService() {
         routingKey: String,
         p0: Context?,
         iconId: Int,
-        appName: String,
-        intent: Intent
+        appName: String
+//        intent: Intent
     ) {
+
         subscribeThread = Thread(Runnable {
             while (true) {
                 Log.d("thread", "running...")
@@ -79,7 +68,7 @@ class Fetcher : JobIntentService() {
                         val delivery = defaultConsumer.nextDelivery()
                         val message = String(delivery.body)
                         Log.d("thread", message)
-                        notificationCreator(p0, appName, message, intent, iconId, routingKey)
+                        notificationCreator(p0, appName, message, iconId, routingKey)
                     }
                 } catch (e: InterruptedException) {
                     break
@@ -93,14 +82,15 @@ class Fetcher : JobIntentService() {
                 }
             }
         })
-
+        subscribeThread
+            ?.start()
     }
 
     private fun notificationCreator(
         p0: Context?,
         appName: String,
         message: String,
-        intent: Intent,
+//        intent: Intent,
         iconId: Int,
         routingKey: String
     ) {
@@ -128,18 +118,18 @@ class Fetcher : JobIntentService() {
         }
 
 
-        val pendingIntent = PendingIntent.getActivity(
-            p0,
-            100,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT
-        )
+//        val pendingIntent = PendingIntent.getActivity(
+//            p0,
+//            100,
+////            intent,
+//            PendingIntent.FLAG_UPDATE_CURRENT
+//        )
 
 
         if (messageSplit[1] == "/media/noImage") {
             builder =
                 NotificationCompat.Builder(p0, channelId)
-                    .setContentIntent(pendingIntent)
+//                    .setContentIntent(pendingIntent)
                     .setSmallIcon(iconId)
                     .setContentTitle(appName)
                     .setContentText(messageSplit[0])
@@ -147,7 +137,7 @@ class Fetcher : JobIntentService() {
         } else {
             builder =
                 NotificationCompat.Builder(p0, channelId)
-                    .setContentIntent(pendingIntent)
+//                    .setContentIntent(pendingIntent)
                     .setSmallIcon(iconId)
                     .setContentTitle(appName)
                     .setContentText(messageSplit[0])
@@ -178,111 +168,84 @@ class Fetcher : JobIntentService() {
         p0: Context?,
         iconId: Int,
         appName: String,
-        intent: Intent,
+//        intent: Intent,
         routingKey: String
     ) {
         Log.d("handlerNotification", "notification Handler go")
         connectionFactorySetup()
-        subscriber(routingKey, p0, iconId, appName, intent)
+        subscriber(routingKey, p0, iconId, appName)
     }
 
-    fun publisher(
-        message: String,
-        dateTime: String,
-        channel: String,
-        imageUri: String = "noImage",
-        context: Context
-    ) {
-        Log.d("publisher", imageUri)
+    override fun doWork(): Result {
 
-        val apiInterface = APIClient().getClient()
+        Log.d("thread","workmanager jalan")
 
-        val imageFile = File(imageUri)
+        val appName = inputData.keyValueMap["appName"]
+        val iconId = inputData.keyValueMap["id"]
+        val routingKey = inputData.keyValueMap["routingKey"]
+//        val activity = inputData.keyValueMap["activity"]
 
-        val requestBody = MultipartBody.Builder()
-
-        if (imageUri == "noImage") {
-            requestBody
-                .setType(MultipartBody.FORM)
-                .addFormDataPart("message", message)
-                .addFormDataPart("dateTime", dateTime)
-                .addFormDataPart("channel", channel)
-                .addFormDataPart(
-                    "imageUri",
-                    imageUri
-                )
-
-        } else {
-            Log.d("publisher", imageFile.toString())
-            requestBody
-                .setType(MultipartBody.FORM)
-                .addFormDataPart(
-                    "imageUri",
-                    imageFile.name,
-                    RequestBody.create("multipart/form-data".toMediaTypeOrNull(), imageFile)
-                )
-                .addFormDataPart("message", message)
-                .addFormDataPart("dateTime", dateTime)
-                .addFormDataPart("channel", channel)
-
+        appName?.let { app ->
+            notificationHandler(
+                applicationContext,
+                iconId as Int,
+                app as String,
+                routingKey as String
+            )
         }
 
-        val callback = apiInterface.publishMessage(requestBody.build())
 
-        callback.enqueue(object : Callback<ResponseBody> {
-            override fun onFailure(call: Call<ResponseBody>?, t: Throwable) {
-                Log.d("Failure", "try again")
-                Toast.makeText(context, "Fail to send message", Toast.LENGTH_SHORT).show()
-            }
 
-            override fun onResponse(call: Call<ResponseBody>?, response: Response<ResponseBody>) {
-                Log.d("Success", "Sended")
-                Toast.makeText(context, "Sending message success!", Toast.LENGTH_SHORT).show()
-            }
-        })
-
+        Log.d("thread","workmanager mati")
+        return Result.retry()
     }
 
-    private val TAG = "FetcherJobIntentService"
+//    private val TAG = "FetcherJobIntentService"
 
-    fun enqueueWork(context: Context, intent: Intent){
-        Log.d("thread","enqueue berfungsi")
-        enqueueWork(context, Fetcher::class.java, 1000, intent)
-    }
+//    fun enqueueWork(context: Context, intent: Intent){
+//        Log.d("thread","enqueue berfungsi")
+//        enqueueWork(context, Fetcher::class.java, 1000, intent)
+//    }
+//
+//    override fun onHandleWork(intent: Intent) {
+//        if (id == null){
+//            id = intent.extras?.get("id")
+//            appName = intent.extras?.get("appName")
+//            routingKey = intent.extras?.get("routingKey")
+//            activity = intent.extras?.get("activity")
+//        }
+//
+//        intentAlarm = Intent(this, Broadcaster::class.java)
+//        intentAlarm?.putExtra("id",id as Int)
+//        intentAlarm?.putExtra("appName",appName as String)
+//        intentAlarm?.putExtra("routingKey",routingKey as String)
+//        intentAlarm?.putExtra("activity",activity as Class<*>)
+//
+//        Log.d("thread","idnya sama dengan "+id.toString())
+//
+//        Log.d("thread","onHandleWork berfungsi")
+//
+//        notificationHandler(
+//            this,
+//            id as Int,
+//            appName as String,
+//            Intent(this, activity as Class<*>),
+//            routingKey as String
+//        )
+//    }
 
-    override fun onHandleWork(intent: Intent) {
-        id = intent.extras?.get("id")
-        appName = intent.extras?.get("appName")
-        routingKey = intent.extras?.get("routingKey")
-        activity = intent.extras?.get("activity")
-
-        Log.d("thread","onHandleWork berfungsi")
-
-        notificationHandler(
-            this,
-            id as Int,
-            appName as String,
-            Intent(this, activity as Class<*>),
-            routingKey as String
-        )
-
-        subscribeThread
-            ?.start()
-    }
-
-    override fun onCreate() {
-        super.onCreate()
-        Log.d(TAG, "onCreate")
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "onDestroy")
-    }
-
-    override fun onStopCurrentWork(): Boolean {
-        Log.d(TAG, "onStopCurrentWork")
-        return super.onStopCurrentWork()
-    }
-
+//    override fun onCreate() {
+//        super.onCreate()
+//        Log.d(TAG, "onCreate")
+//    }
+//
+//    override fun onDestroy() {
+//        super.onDestroy()
+//        Log.d(TAG, "onDestroy")
+//    }
+//
+//    override fun onStopCurrentWork(): Boolean {
+//        Log.d(TAG, "onStopCurrentWork")
+//        return super.onStopCurrentWork()
+//    }
 }

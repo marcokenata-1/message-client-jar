@@ -12,17 +12,18 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.util.Log
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import com.marcokenata.messagefetcher.Broadcaster
+import androidx.work.*
 import com.marcokenata.messagefetcher.Fetcher
+import com.marcokenata.messagefetcher.Publisher
 import kotlinx.android.synthetic.main.activity_main.*
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,8 +33,12 @@ class MainActivity : AppCompatActivity() {
 
     private var x = ""
 
+    val publisher = Publisher()
+
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
+
+        WorkManager.getInstance(this).cancelAllWork()
 
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -43,7 +48,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val appName: String = applicationInfo.loadLabel(packageManager).toString()
-        val fetcher = Fetcher()
+
 
 //        fetcher.notificationHandler(
 //            applicationContext,
@@ -58,8 +63,23 @@ class MainActivity : AppCompatActivity() {
         intent.putExtra("appName", appName)
         intent.putExtra("routingKey", "test.*")
         intent.putExtra("activity", MainActivity::class.java)
+        val map = hashMapOf<String, Any?>()
 
-        fetcher.enqueueWork(this, intent)
+        map["id"] = R.drawable.ic_launcher_foreground
+        map["appName"] = appName
+        map["routingKey"] = "test.*"
+
+        val data = Data.Builder()
+            .putAll(map)
+            .build()
+
+        val workRequest = OneTimeWorkRequestBuilder<Fetcher>()
+            .setInputData(data)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 2, TimeUnit.MINUTES)
+            .build()
+
+        WorkManager.getInstance(this)
+            .enqueueUniqueWork("notif", ExistingWorkPolicy.REPLACE, workRequest)
 
         val myCalendar = Calendar.getInstance()
 
@@ -116,13 +136,13 @@ class MainActivity : AppCompatActivity() {
                 && editText2.text != "Click to Select Hour and Minute" && et_message.length() != 0
             ) {
                 if (imageEncoded.isNullOrEmpty()) {
-                    fetcher.publisher(
+                    publisher.publisher(
                         et_message.text.toString(), x, et_channel.text.toString(),
                         context = this
                     )
                 } else {
                     imageEncoded?.let { image ->
-                        fetcher.publisher(
+                        publisher.publisher(
                             et_message.text.toString(), x, et_channel.text.toString(),
                             image, this
                         )
@@ -191,22 +211,5 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    override fun onDestroy() {
-
-        Log.d("thread","destroyed")
-        val appName: String = applicationInfo.loadLabel(packageManager).toString()
-        val intent = Intent(this, Broadcaster::class.java)
-
-        intent.putExtra("id", R.drawable.ic_launcher_foreground)
-        intent.putExtra("appName", appName)
-        intent.putExtra("routingKey", "test.*")
-        intent.putExtra("activity", MainActivity::class.java)
-
-        sendBroadcast(intent)
-
-        Log.d("thread","intent send")
-
-        super.onDestroy()
-    }
 
 }
