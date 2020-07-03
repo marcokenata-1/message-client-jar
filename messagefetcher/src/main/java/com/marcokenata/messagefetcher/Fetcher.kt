@@ -1,251 +1,219 @@
 package com.marcokenata.messagefetcher
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import androidx.work.Worker
+import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.bumptech.glide.Glide
-import com.rabbitmq.client.AMQP
-import com.rabbitmq.client.ConnectionFactory
-import com.rabbitmq.client.QueueingConsumer
+import com.rabbitmq.client.*
+import kotlinx.coroutines.*
+import org.json.JSONObject
 import java.net.URISyntaxException
 import java.security.KeyManagementException
 import java.security.NoSuchAlgorithmException
 import java.util.*
 
-class Fetcher(context: Context, workerParameters: WorkerParameters) :
-    Worker(context, workerParameters) {
+class Fetcher(
+    private val iconId: Int,
+    private val appName: String,
+    private val activity: Intent,
+    private val context: Context
+) {
 
-    private var builder: NotificationCompat.Builder? = null
-    private var subscribeThread: Thread? = null
+    private val connectionFactory = ConnectionFactory()
+    lateinit var channel: Channel
+    lateinit var consumer: DefaultConsumer
+    lateinit var connection: Connection
 
-    private var connectionFactory = ConnectionFactory()
+    lateinit var declareOk: AMQP.Queue.DeclareOk
 
-    private lateinit var declareOk: AMQP.Queue.DeclareOk
-    private fun connectionFactorySetup() {
+    private suspend fun connectionFactorySetup(routingKey: String) = withContext(Dispatchers.IO) {
         val stringUri =
             "amqp://hazpfnog:k6nyGD8xWN9o-8q1qy1Y8YvJkLkjBfjA@shark.rmq.cloudamqp.com/hazpfnog"
         try {
             Log.d("thread", "setup")
-            connectionFactory.isAutomaticRecoveryEnabled = false
+            connectionFactory.isAutomaticRecoveryEnabled = true
             connectionFactory.setUri(stringUri)
+            connectionFactory.isTopologyRecoveryEnabled = true
+            connection = connectionFactory.newConnection()
+            channel = connection.createChannel()
+            channel.basicQos(0)
+            declareOk = channel.queueDeclare()!!
+            Log.d("thread", "getting messages...")
+            channel.queueBind(declareOk.queue, "notifications12", routingKey)
+            channel.queueBind(declareOk.queue, "allmessage", routingKey)
+            Log.d("thread", "$channel ${declareOk.queue}")
+            Log.d("thread", "running...")
+            consumer = object : DefaultConsumer(channel) {
+                @RequiresApi(Build.VERSION_CODES.O)
+                override fun handleDelivery(
+                    consumerTag: String?,
+                    envelope: Envelope?,
+                    properties: AMQP.BasicProperties?,
+                    body: ByteArray?
+                ) {
+                    super.handleDelivery(consumerTag, envelope, properties, body)
+                    val routingKey = envelope?.routingKey
+                    body?.let { String(it) }?.let {
+                        if (routingKey != null) {
+                            NotifCreator().notificationCreator(
+                                context, appName,
+                                it, activity, iconId, routingKey
+                            )
+                        }
+                    }
+                }
+            }
+            channel.basicConsume(declareOk.queue, true, consumer)
         } catch (e: KeyManagementException) {
             e.printStackTrace()
         } catch (e: NoSuchAlgorithmException) {
             e.printStackTrace()
         } catch (e: URISyntaxException) {
             e.printStackTrace()
-        }
-    }
-
-    private fun subscriber(
-        routingKey: String,
-        p0: Context?,
-        iconId: Int,
-        appName: String
-//        intent: Intent
-    ) {
-
-        subscribeThread = Thread(Runnable {
-            while (true) {
-                Log.d("thread", "running...")
-                val connection = connectionFactory.newConnection()
-                val channel = connection.createChannel()
-                channel.basicQos(0)
-                declareOk = channel.queueDeclare()
-                Log.d("thread", "getting messages...")
-                channel.queueBind(declareOk.queue, "notifications12", routingKey)
-                val defaultConsumer = QueueingConsumer(channel)
-                channel.basicConsume(declareOk.queue, true, defaultConsumer)
-                Log.d("thread", "$channel ${declareOk.queue}")
-                try {
-                    while (true) {
-                        Log.d("thread", "getting messages decoded")
-                        val delivery = defaultConsumer.nextDelivery()
-                        val message = String(delivery.body)
-                        Log.d("thread", message)
-                        notificationCreator(p0, appName, message, iconId, routingKey)
-                    }
-                } catch (e: InterruptedException) {
-                    break
-                } catch (e1: Exception) {
-                    try {
-                        Log.d("thread", "sleeping")
-                        Thread.sleep(5000)
-                    } catch (e: InterruptedException) {
-                        break
-                    }
-                }
+        } catch (e: Exception) {
+            try {
+                Thread.sleep(5000)
+            } catch (e: InterruptedException) {
+                connection.close()
+                return@withContext Log.d("thread", "interupsi")
             }
-        })
-        subscribeThread
-            ?.start()
+        } catch (e : TimeoutCancellationException){
+            connection.close()
+        }
     }
 
-    private fun notificationCreator(
-        p0: Context?,
-        appName: String,
-        message: String,
-//        intent: Intent,
-        iconId: Int,
-        routingKey: String
-    ) {
-        val messageSplit = message.split("----")
+    fun getChannel(routingKey: String) {
+        runBlocking {
+            val jobA = async { connectionFactorySetup(routingKey) }
+            run {
+                jobA.await()
+            }
+        }
+    }
 
-        val notificationManager =
-            p0?.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    class FetcherWork(
+        context: Context,
+        workerParameters: WorkerParameters,
+        fetcher: Fetcher
+    ) :
+        CoroutineWorker(context, workerParameters) {
 
-        val channelId = "101"
-        val channelName = "$appName Channel"
+        override suspend fun doWork(): Result {
 
+            Log.d("thread", "workmanager jalan")
+            return Result.success()
 
-        val routingSplit = routingKey.split('.')
-        val priority = routingSplit[routingSplit.size - 1]
-        if (priority == "*" && priority == "Targeted") {
-            val importance = NotificationManager.IMPORTANCE_MAX
-            val notificationChannel =
-                NotificationChannel(channelId, channelName, importance)
-            notificationManager.createNotificationChannel(notificationChannel)
-        } else {
-            val importance = NotificationManager.IMPORTANCE_DEFAULT
-            val notificationChannel =
-                NotificationChannel(channelId, channelName, importance)
-            notificationManager.createNotificationChannel(notificationChannel)
         }
 
-
-//        val pendingIntent = PendingIntent.getActivity(
-//            p0,
-//            100,
-////            intent,
-//            PendingIntent.FLAG_UPDATE_CURRENT
-//        )
-
-
-        if (messageSplit[1] == "/media/noImage") {
-            builder =
-                NotificationCompat.Builder(p0, channelId)
-//                    .setContentIntent(pendingIntent)
-                    .setSmallIcon(iconId)
-                    .setContentTitle(appName)
-                    .setContentText(messageSplit[0])
-                    .setGroup(routingKey)
-        } else {
-            builder =
-                NotificationCompat.Builder(p0, channelId)
-//                    .setContentIntent(pendingIntent)
-                    .setSmallIcon(iconId)
-                    .setContentTitle(appName)
-                    .setContentText(messageSplit[0])
-                    .setGroup(routingKey)
-
-            //adding image function
-            val target = Glide.with(p0)
-                .asBitmap()
-                .load(APIClient().httpUrl + messageSplit[1])
-                .submit()
-
-            val bitmap = target.get()
-            builder!!
-                .setLargeIcon(bitmap)
-                .setStyle(
-                    NotificationCompat.BigPictureStyle()
-                        .bigLargeIcon(null)
-                        .bigPicture(bitmap)
-                )
-
-
-        }
-        val m = (Date().time / 1000L % Int.MAX_VALUE).toInt()
-        notificationManager.notify(m, builder?.build())
     }
 
-    fun notificationHandler(
-        p0: Context?,
-        iconId: Int,
-        appName: String,
-//        intent: Intent,
-        routingKey: String
-    ) {
-        Log.d("handlerNotification", "notification Handler go")
-        connectionFactorySetup()
-        subscriber(routingKey, p0, iconId, appName)
-    }
+    class NotifCreator {
 
-    override fun doWork(): Result {
+        private var builder: NotificationCompat.Builder? = null
 
-        Log.d("thread","workmanager jalan")
+        fun notificationCreator(
+            p0: Context?,
+            appName: String,
+            message: String,
+            intent: Intent,
+            iconId: Int,
+            routingKey: String
+        ) {
+            val messageSplit = message.split("----")
 
-        val appName = inputData.keyValueMap["appName"]
-        val iconId = inputData.keyValueMap["id"]
-        val routingKey = inputData.keyValueMap["routingKey"]
-//        val activity = inputData.keyValueMap["activity"]
+            val messageJson = JSONObject(message)
 
-        appName?.let { app ->
-            notificationHandler(
-                applicationContext,
-                iconId as Int,
-                app as String,
-                routingKey as String
+            val notificationManager =
+                p0?.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            val channelId = "101"
+            val channelName = "$appName Channel"
+
+            val priority = messageJson["priority"]
+            if (priority == "All Devices") {
+                Log.d("thread", "importance none - all devices")
+                val importance = NotificationManager.IMPORTANCE_NONE
+                val notificationChannel =
+                    NotificationChannel(channelId, channelName, importance)
+                notificationManager.createNotificationChannel(notificationChannel)
+            } else if (priority == "Targeted") {
+                Log.d("thread", "importance min - targeted")
+                val importance = NotificationManager.IMPORTANCE_MIN
+                val notificationChannel =
+                    NotificationChannel(channelId, channelName, importance)
+                notificationManager.createNotificationChannel(notificationChannel)
+            } else if (priority == "Important") {
+                Log.d("thread", "importance high - important")
+                val importance = NotificationManager.IMPORTANCE_HIGH
+                val notificationChannel =
+                    NotificationChannel(channelId, channelName, importance)
+                notificationManager.createNotificationChannel(notificationChannel)
+            } else {
+                Log.d("thread", "importance default - general")
+                val importance = NotificationManager.IMPORTANCE_DEFAULT
+                val notificationChannel =
+                    NotificationChannel(channelId, channelName, importance)
+                notificationManager.createNotificationChannel(notificationChannel)
+            }
+
+            val pendingIntent = PendingIntent.getActivity(
+                p0,
+                100,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT
             )
+
+
+            if (messageJson["imageUrl"] == "/media/noImage") {
+                builder =
+                    NotificationCompat.Builder(p0, channelId)
+                        .setContentIntent(pendingIntent)
+                        .setSmallIcon(iconId)
+                        .setContentTitle(appName)
+                        .setContentText(messageJson["message"] as String)
+                        .setGroup(routingKey)
+            } else {
+                builder =
+                    NotificationCompat.Builder(p0, channelId)
+                        .setContentIntent(pendingIntent)
+                        .setSmallIcon(iconId)
+                        .setContentTitle(appName)
+                        .setContentText(messageJson["message"] as String)
+                        .setGroup(routingKey)
+
+                //adding image function
+                val target = Glide.with(p0)
+                    .asBitmap()
+                    .load(APIClient().httpUrl + messageJson["imageUrl"])
+                    .submit()
+
+                val bitmap = target.get()
+                builder!!
+                    .setLargeIcon(bitmap)
+                    .setStyle(
+                        NotificationCompat.BigPictureStyle()
+                            .bigLargeIcon(null)
+                            .bigPicture(bitmap)
+                    )
+
+
+            }
+            val notif = builder?.build()
+            notif?.flags = Notification.FLAG_AUTO_CANCEL
+            val m = (Date().time / 1000L % Int.MAX_VALUE).toInt()
+            notificationManager.notify(m, notif)
         }
-
-
-
-        Log.d("thread","workmanager mati")
-        return Result.retry()
     }
-
-//    private val TAG = "FetcherJobIntentService"
-
-//    fun enqueueWork(context: Context, intent: Intent){
-//        Log.d("thread","enqueue berfungsi")
-//        enqueueWork(context, Fetcher::class.java, 1000, intent)
-//    }
-//
-//    override fun onHandleWork(intent: Intent) {
-//        if (id == null){
-//            id = intent.extras?.get("id")
-//            appName = intent.extras?.get("appName")
-//            routingKey = intent.extras?.get("routingKey")
-//            activity = intent.extras?.get("activity")
-//        }
-//
-//        intentAlarm = Intent(this, Broadcaster::class.java)
-//        intentAlarm?.putExtra("id",id as Int)
-//        intentAlarm?.putExtra("appName",appName as String)
-//        intentAlarm?.putExtra("routingKey",routingKey as String)
-//        intentAlarm?.putExtra("activity",activity as Class<*>)
-//
-//        Log.d("thread","idnya sama dengan "+id.toString())
-//
-//        Log.d("thread","onHandleWork berfungsi")
-//
-//        notificationHandler(
-//            this,
-//            id as Int,
-//            appName as String,
-//            Intent(this, activity as Class<*>),
-//            routingKey as String
-//        )
-//    }
-
-//    override fun onCreate() {
-//        super.onCreate()
-//        Log.d(TAG, "onCreate")
-//    }
-//
-//    override fun onDestroy() {
-//        super.onDestroy()
-//        Log.d(TAG, "onDestroy")
-//    }
-//
-//    override fun onStopCurrentWork(): Boolean {
-//        Log.d(TAG, "onStopCurrentWork")
-//        return super.onStopCurrentWork()
-//    }
 }
+
+
+

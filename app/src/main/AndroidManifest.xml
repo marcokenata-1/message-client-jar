@@ -1,11 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.marcokenata.messageclient">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
+        android:name="com.marcokenata.messageclient.Application"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -15,20 +18,27 @@
         <activity android:name=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
+                <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <service android:name="com.marcokenata.messagefetcher.Fetcher"
-            android:enabled="true"
-            android:permission="android.permission.BIND_JOB_SERVICE"/>
 
-        <receiver android:name="com.marcokenata.messagefetcher.Broadcaster"
-            android:exported="true">
+        <receiver android:name="com.marcokenata.messagefetcher.IntentReceiver"
+            android:enabled="true" android:exported="true">
             <intent-filter>
+                <action android:name="restartservice" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <service android:name="com.marcokenata.messagefetcher.FetcherIntentService"
+            android:stopWithTask="false"
+            android:exported="true" />
+
+        <provider
+            android:name="androidx.work.impl.WorkManagerInitializer"
+            android:authorities="${applicationId}.workmanager-init"
+            tools:node="remove" />
 
     </application>
 

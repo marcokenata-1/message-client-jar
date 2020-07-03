@@ -12,20 +12,29 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
+import android.util.Log
+import android.view.View
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
-import androidx.work.*
-import com.marcokenata.messagefetcher.Fetcher
+import com.marcokenata.messagefetcher.FetcherIntentService
+import com.marcokenata.messagefetcher.IntentReceiver
 import com.marcokenata.messagefetcher.Publisher
 import kotlinx.android.synthetic.main.activity_main.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
-import java.util.concurrent.TimeUnit
+import kotlin.collections.ArrayList
+import kotlin.coroutines.CoroutineContext
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), AdapterView.OnItemSelectedListener, CoroutineScope {
 
     private var evArrayUri = ArrayList<Uri>()
 
@@ -35,10 +44,10 @@ class MainActivity : AppCompatActivity() {
 
     val publisher = Publisher()
 
+    private var importance = ""
+
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
-
-        WorkManager.getInstance(this).cancelAllWork()
 
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -47,39 +56,10 @@ class MainActivity : AppCompatActivity() {
             checkPermissions()
         }
 
-        val appName: String = applicationInfo.loadLabel(packageManager).toString()
-
-
-//        fetcher.notificationHandler(
-//            applicationContext,
-//            R.drawable.ic_launcher_foreground,
-//            appName,
-//            Intent(applicationContext, MainActivity::class.java),
-//            "test.*"
-//        )
-
-        val intent = Intent(this, Fetcher::class.java)
-        intent.putExtra("id", R.drawable.ic_launcher_foreground)
-        intent.putExtra("appName", appName)
-        intent.putExtra("routingKey", "test.*")
-        intent.putExtra("activity", MainActivity::class.java)
-        val map = hashMapOf<String, Any?>()
-
-        map["id"] = R.drawable.ic_launcher_foreground
-        map["appName"] = appName
-        map["routingKey"] = "test.*"
-
-        val data = Data.Builder()
-            .putAll(map)
-            .build()
-
-        val workRequest = OneTimeWorkRequestBuilder<Fetcher>()
-            .setInputData(data)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 2, TimeUnit.MINUTES)
-            .build()
-
-        WorkManager.getInstance(this)
-            .enqueueUniqueWork("notif", ExistingWorkPolicy.REPLACE, workRequest)
+        launch {
+            val intent = Intent(this@MainActivity, FetcherIntentService::class.java)
+            startService(intent)
+        }
 
         val myCalendar = Calendar.getInstance()
 
@@ -103,7 +83,7 @@ class MainActivity : AppCompatActivity() {
             ).show()
         }
 
-        val time = TimePickerDialog.OnTimeSetListener { view, hour, minute ->
+        val time = TimePickerDialog.OnTimeSetListener { _, hour, minute ->
             myCalendar.set(Calendar.HOUR_OF_DAY, hour)
             myCalendar.set(Calendar.MINUTE, minute)
             myCalendar.set(Calendar.SECOND, 0)
@@ -131,20 +111,45 @@ class MainActivity : AppCompatActivity() {
             startActivityForResult(Intent.createChooser(chooseFile, "Choose a file"), 2)
         }
 
+        spinner.onItemSelectedListener = this
+
+        val categories: ArrayList<String> = ArrayList()
+        categories.add("Important")
+        categories.add("Targeted")
+        categories.add("General")
+        categories.add("All Devices")
+
+        // Creating adapter for spinner
+        val dataAdapter: ArrayAdapter<String> =
+            ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, categories)
+
+        // Drop down layout style - list view with radio button
+        dataAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+
+        // attaching data adapter to spinner
+        spinner.adapter = dataAdapter
+
         bt_publisher.setOnClickListener {
             if (et_channel.length() != 0 && et_date.text != "Click to Select Date"
                 && editText2.text != "Click to Select Hour and Minute" && et_message.length() != 0
             ) {
                 if (imageEncoded.isNullOrEmpty()) {
+
                     publisher.publisher(
                         et_message.text.toString(), x, et_channel.text.toString(),
-                        context = this
+                        context = this, importance = importance
                     )
+                    val broadcastIntent = Intent()
+                    broadcastIntent.setClass(this@MainActivity, IntentReceiver::class.java)
+                    sendBroadcast(broadcastIntent)
                 } else {
+                    val broadcastIntent = Intent()
+                    broadcastIntent.setClass(this@MainActivity, IntentReceiver::class.java)
+                    sendBroadcast(broadcastIntent)
                     imageEncoded?.let { image ->
                         publisher.publisher(
                             et_message.text.toString(), x, et_channel.text.toString(),
-                            image, this
+                            image, this, importance = importance
                         )
                     }
                 }
@@ -211,5 +216,24 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onNothingSelected(parent: AdapterView<*>?) {
+        TODO("Not yet implemented")
+    }
+
+    override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+        importance = parent?.getItemAtPosition(position).toString()
+    }
+
+    override val coroutineContext: CoroutineContext
+        get() = SupervisorJob() + Dispatchers.IO
+
+
+    override fun onDestroy() {
+        super.onDestroy()
+        Log.d("thread", "activity destroyed")
+        val broadcastIntent = Intent()
+        broadcastIntent.setClass(this@MainActivity, IntentReceiver::class.java)
+        sendBroadcast(broadcastIntent)
+    }
 
 }

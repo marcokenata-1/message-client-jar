@@ -19,7 +19,8 @@ class Publisher {
         dateTime: String,
         channel: String,
         imageUri: String = "noImage",
-        context: Context
+        context: Context,
+        importance : String
     ) {
         Log.d("publisher", imageUri)
 
@@ -35,6 +36,7 @@ class Publisher {
                 .addFormDataPart("message", message)
                 .addFormDataPart("dateTime", dateTime)
                 .addFormDataPart("channel", channel)
+                .addFormDataPart("messageType",importance)
                 .addFormDataPart(
                     "imageUri",
                     imageUri
@@ -51,6 +53,7 @@ class Publisher {
                 )
                 .addFormDataPart("message", message)
                 .addFormDataPart("dateTime", dateTime)
+                .addFormDataPart("messageType",importance)
                 .addFormDataPart("channel", channel)
 
         }
