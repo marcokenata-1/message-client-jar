@@ -15,6 +15,7 @@ class FetcherIntentService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        Log.d("thread", "start over")
         val workRequest = OneTimeWorkRequestBuilder<Fetcher.FetcherWork>()
             .build()
 
@@ -27,7 +28,7 @@ class FetcherIntentService : Service() {
         val broadcastIntent = Intent()
         broadcastIntent.setClass(this, IntentReceiver::class.java)
         sendBroadcast(broadcastIntent)
-        Log.d("thread","task removed")
+        Log.d("thread", "task removed")
     }
 
     override fun onBind(intent: Intent?): IBinder? {

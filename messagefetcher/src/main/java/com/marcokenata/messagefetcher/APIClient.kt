@@ -8,7 +8,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 class APIClient {
 
-    val httpUrl = "https://message-broadcaster.herokuapp.com/"
+    val httpUrl = "https://message-broadcaster-host.herokuapp.com/"
     fun getClient(): APICaller {
         val logger = HttpLoggingInterceptor()
         logger.level = HttpLoggingInterceptor.Level.BODY
