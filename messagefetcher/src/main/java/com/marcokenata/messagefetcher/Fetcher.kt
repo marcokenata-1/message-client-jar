@@ -33,7 +33,7 @@ class Fetcher(
     lateinit var consumer: DefaultConsumer
     lateinit var connection: Connection
 
-    lateinit var declareOk: AMQP.Queue.DeclareOk
+    private lateinit var declareOk: AMQP.Queue.DeclareOk
 
     private suspend fun connectionFactorySetup(routingKey: String) = withContext(Dispatchers.IO) {
         val stringUri =
@@ -120,6 +120,7 @@ class Fetcher(
 
         private var builder: NotificationCompat.Builder? = null
 
+        @RequiresApi(Build.VERSION_CODES.O)
         fun notificationCreator(
             p0: Context?,
             appName: String,
@@ -128,40 +129,46 @@ class Fetcher(
             iconId: Int,
             routingKey: String
         ) {
-            val messageSplit = message.split("----")
+
 
             val messageJson = JSONObject(message)
 
             val notificationManager =
                 p0?.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-            val channelId = "101"
+            val channelId: String
             val channelName = "$appName Channel"
+            val importance: Int
+            val notificationChannel: NotificationChannel
 
             val priority = messageJson["priority"]
             if (priority == "All Devices") {
                 Log.d("thread", "importance none - all devices")
-                val importance = NotificationManager.IMPORTANCE_NONE
-                val notificationChannel =
-                    NotificationChannel(channelId, channelName, importance)
+                importance = NotificationManager.IMPORTANCE_NONE
+                channelId = "101"
+                notificationChannel =
+                    NotificationChannel(channelId, "$channelName none", importance)
                 notificationManager.createNotificationChannel(notificationChannel)
             } else if (priority == "Targeted") {
                 Log.d("thread", "importance min - targeted")
-                val importance = NotificationManager.IMPORTANCE_MIN
-                val notificationChannel =
-                    NotificationChannel(channelId, channelName, importance)
+                importance = NotificationManager.IMPORTANCE_MIN
+                channelId = "102"
+                notificationChannel =
+                    NotificationChannel(channelId, "$channelName min", importance)
                 notificationManager.createNotificationChannel(notificationChannel)
             } else if (priority == "Important") {
                 Log.d("thread", "importance high - important")
-                val importance = NotificationManager.IMPORTANCE_HIGH
-                val notificationChannel =
-                    NotificationChannel(channelId, channelName, importance)
+                importance = NotificationManager.IMPORTANCE_HIGH
+                channelId = "103"
+                notificationChannel =
+                    NotificationChannel(channelId, "$channelName high", importance)
                 notificationManager.createNotificationChannel(notificationChannel)
             } else {
                 Log.d("thread", "importance default - general")
-                val importance = NotificationManager.IMPORTANCE_DEFAULT
-                val notificationChannel =
-                    NotificationChannel(channelId, channelName, importance)
+                importance = NotificationManager.IMPORTANCE_DEFAULT
+                channelId = "104"
+                notificationChannel =
+                    NotificationChannel(channelId, "$channelName default", importance)
                 notificationManager.createNotificationChannel(notificationChannel)
             }
 

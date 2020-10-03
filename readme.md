@@ -1,0 +1,1 @@
+This is a sample Android Application which connects push notifications to Android Phones through a message queue
